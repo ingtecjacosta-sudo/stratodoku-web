@@ -31,4 +31,4 @@ La partida y los récords se guardan en el navegador de cada teléfono.
 | `sw.js` | Permite usarla sin internet. Al publicar cambios, sube el número de `VERSION` |
 | `icons/` | Iconos de la app |
 
-Se publica sola con GitHub Pages cada vez que se sube un cambio a `main`.
+Se publica con GitHub Pages desde la rama `gh-pages`: al subir un cambio a `main`, súbelo también a `gh-pages` (`git push origin main:gh-pages`).
