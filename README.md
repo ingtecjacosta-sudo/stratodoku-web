@@ -28,7 +28,7 @@ La partida y los récords se guardan en el navegador de cada teléfono.
 |---|---|
 | `index.html` | Todo el juego (diseño y lógica) |
 | `manifest.webmanifest` | Nombre, colores e iconos al agregarla a la pantalla de inicio |
-| `sw.js` | Permite usarla sin internet. Al publicar cambios, sube el número de `VERSION` |
+| `sw.js` | Permite usarla sin internet. Al publicar cambios, sube el número de `VERSION` aquí y `APP_VERSION` en `index.html` |
 | `icons/` | Iconos de la app |
 
 Se publica con GitHub Pages desde la rama `gh-pages`: al subir un cambio a `main`, súbelo también a `gh-pages` (`git push origin main:gh-pages`).
