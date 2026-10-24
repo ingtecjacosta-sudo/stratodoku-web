@@ -141,6 +141,17 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--primary); o
 .emojis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; justify-items: center; }
 .emo { width: 40px; height: 40px; border-radius: 50%; border: 2px solid transparent; background: none; font-size: 22px; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--primary); }
 .emo[aria-pressed="true"] { border-color: var(--primary); }
+/* Efectos: cuadro completo (salto verde en onda) y Sudoku completo (ola naranja + confeti verde y naranja) */
+:root { --fx-green: #66BB6A; --fx-green-glow: #43A047; --fx-green-dark: #2E7D32; --fx-orange: #FB8C00; --fx-orange-dark: #E65100; }
+.cell.fx-box { animation: boxpop .75s ease-out both; animation-delay: var(--d, 0ms); }
+@keyframes boxpop { 0% { transform: scale(1); } 35% { transform: scale(1.16); background: var(--fx-green); color: #FFFFFF; z-index: 1; box-shadow: 0 0 14px var(--fx-green-glow); } 100% { transform: scale(1); } }
+.cell.fx-win { animation: winwave .9s ease-in-out both; animation-delay: var(--d, 0ms); }
+@keyframes winwave { 40% { background: var(--fx-orange); color: #FFFFFF; transform: scale(1.1); z-index: 1; } }
+.toast { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: var(--fx-green-dark); color: #FFFFFF; font-weight: 700; font-size: 22px; padding: 12px 22px; border-radius: 30px; box-shadow: 0 6px 24px rgba(0,0,0,.25); pointer-events: none; white-space: nowrap; z-index: 5; animation: toast 1.4s ease-out both; }
+@keyframes toast { 0% { opacity: 0; transform: translate(-50%, -30%) scale(.8); } 15% { opacity: 1; transform: translate(-50%, -50%) scale(1.05); } 25% { transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -70%); } }
+.toast.win { background: var(--fx-orange-dark); }
+#confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; }
+@media (prefers-reduced-motion: reduce) { .cell.fx-box, .cell.fx-win, .toast { animation-duration: .01ms; } }
 .sr { position: fixed; top: 0; left: 0; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
@@ -249,7 +260,7 @@ const rankFor = (diffId, secs) => { const r = store.get('records.' + diffId, [])
 const S = {
   screen: 'home', game: null, undo: [], selected: null, notesMode: false, paused: false, generating: false,
   tab: store.get('tab', 'FACIL'), dialog: null, pending: null, savedRank: null,
-  name: store.get('lastName', ''), avatar: store.get('lastAvatar', { emoji: EMOJIS[0] }), confirmClear: false,
+  fx: null, celebrating: false, name: store.get('lastName', ''), avatar: store.get('lastAvatar', { emoji: EMOJIS[0] }), confirmClear: false,
 };
 { const saved = store.get('game', null); if (saved && saved.sol && !isOver(saved)) S.game = saved; }
 
@@ -303,6 +314,8 @@ function renderGame() {
   const isPeer = (a, b) => Math.floor(a / 9) === Math.floor(b / 9) || a % 9 === b % 9 || (Math.floor(a / 27) === Math.floor(b / 27) && Math.floor(a % 9 / 3) === Math.floor(b % 9 / 3));
   const placed = new Array(10).fill(0);
   g.val.forEach((v, i) => { if (v && !isWrong(g, i)) placed[v]++; });
+  // Si la pantalla se redibuja durante un efecto, éste sigue donde iba (retraso negativo)
+  const fxAge = S.fx ? Date.now() - S.fx.t : 0, fx = S.fx && fxAge < 2200 ? S.fx : null;
   let cells = '';
   for (let p = 0; p < 81; p++) {
     const r = Math.floor(p / 9), c = p % 9, v = g.val[p];
@@ -316,7 +329,9 @@ function renderGame() {
       if (v) inner = v;
       else if (g.notes[p]) inner = `<span class="notes">${[1,2,3,4,5,6,7,8,9].map((d) => `<span>${g.notes[p] & (1 << d) ? d : ''}</span>`).join('')}</span>`;
     }
-    cells += `<button class="${cls.join(' ')}" data-act="cell" data-p="${p}" aria-label="Fila ${r + 1}, columna ${c + 1}${v ? ', ' + v : ', vacía'}">${inner}</button>`;
+    let fxStyle = '';
+    if (fx && fx.d[p] != null) { cls.push(fx.kind === 'win' ? 'fx-win' : 'fx-box'); fxStyle = ` style="--d:${fx.d[p] - fxAge}ms"`; }
+    cells += `<button class="${cls.join(' ')}"${fxStyle} data-act="cell" data-p="${p}" aria-label="Fila ${r + 1}, columna ${c + 1}${v ? ', ' + v : ', vacía'}">${inner}</button>`;
   }
   const hintsLeft = MAX_HINTS - g.hints;
   return `<div class="game">
@@ -328,6 +343,7 @@ function renderGame() {
     <div class="info"><span class="${g.mistakes ? 'bad' : ''}">Errores: ${g.mistakes}/${MAX_MISTAKES}</span><span id="clock">${fmt(g.secs)}</span><span>Pistas: ${hintsLeft}</span></div>
     <div class="grid-wrap">
       <div class="grid">${cells}</div>
+      ${fx && fx.label && fxAge < 1400 ? `<div class="toast ${fx.kind === 'win' ? 'win' : ''}" style="animation-delay:${-fxAge}ms">${fx.label}</div>` : ''}
       ${S.paused ? `<div class="paused"><button class="btn-primary" data-act="pause" aria-label="Continuar">${icon('play')}</button><span>En pausa</span></div>` : ''}
     </div>
     <div class="spacer"></div>
@@ -347,7 +363,7 @@ function renderDialog() {
   if (S.confirmClear) return `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dt">
     <h3 id="dt">¿Borrar todos los récords?</h3><p>Se borrarán los récords y las partidas ganadas de todas las dificultades.</p>
     <div class="buttons"><button class="text-btn" data-act="cancel-clear">Cancelar</button><button class="text-btn" data-act="clear">Borrar</button></div></div></div>`;
-  if (S.screen !== 'game' || !g) return '';
+  if (S.screen !== 'game' || !g || S.celebrating) return '';
   const summary = `Resolviste un Sudoku ${diffById(g.d).label.toLowerCase()} en ${fmt(g.secs)} con ${g.mistakes} ${g.mistakes === 1 ? 'error' : 'errores'}.`;
   if (isSolved(g) && S.pending) {
     const a = S.avatar;
@@ -381,8 +397,59 @@ function render() {
 }
 
 // ================= Acciones =================
-function apply(next) {
+const boxCells = (b) => { const br = Math.floor(b / 3) * 3, bc = b % 3 * 3, out = []; for (let r = br; r < br + 3; r++) for (let c = bc; c < bc + 3; c++) out.push(r * 9 + c); return out; };
+const boxDone = (g, b) => boxCells(b).every((p) => g.val[p] === g.sol[p]);
+const vibrate = (pattern) => { try { navigator.vibrate && navigator.vibrate(pattern); } catch {} };
+const reducedMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function celebrate(prev, next, pos) {
+  const t = Date.now();
+  if (isSolved(next)) {
+    // Ola en diagonal por todo el tablero, mensaje y confeti; luego aparece el aviso de victoria
+    const d = {}; for (let p = 0; p < 81; p++) d[p] = (Math.floor(p / 9) + p % 9) * 45;
+    S.fx = { kind: 'win', t, d, label: '¡Sudoku completo!' };
+    S.celebrating = true; vibrate([60, 60, 120]); confetti();
+    setTimeout(() => { S.celebrating = false; render(); }, reducedMotion() ? 300 : 1900);
+    return;
+  }
+  const done = [0,1,2,3,4,5,6,7,8].filter((b) => !boxDone(prev, b) && boxDone(next, b));
+  if (!done.length) return;
+  // Onda que sale desde la casilla recién llenada
+  const pr = Math.floor(pos / 9), pc = pos % 9, d = {};
+  for (const b of done) for (const p of boxCells(b)) d[p] = Math.max(Math.abs(Math.floor(p / 9) - pr), Math.abs(p % 9 - pc)) * 90;
+  S.fx = { kind: 'box', t, d, label: done.length > 1 ? '¡Dos cuadros!' : '¡Cuadro completo!' };
+  vibrate(40);
+}
+
+function confetti() {
+  if (reducedMotion()) return;
+  document.getElementById('confetti')?.remove();
+  const cv = document.createElement('canvas'); cv.id = 'confetti'; document.body.appendChild(cv);
+  const dpr = window.devicePixelRatio || 1, W = innerWidth, H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr);
+  const colors = ['#2E7D32', '#66BB6A', '#A5D6A7', '#E65100', '#FB8C00', '#FFCC80'];
+  const parts = Array.from({ length: 160 }, (_, i) => {
+    const fromLeft = i % 2 === 0, a = (fromLeft ? -1 : 1) * (Math.PI / 4 + Math.random() * Math.PI / 5);
+    const v = 9 + Math.random() * 9;
+    return { x: fromLeft ? 0 : W, y: H * 0.75, vx: Math.sin(-a) * v, vy: -Math.cos(a) * v, w: 6 + Math.random() * 6, h: 4 + Math.random() * 4,
+      r: Math.random() * 6, vr: (Math.random() - .5) * .4, c: colors[i % colors.length] };
+  });
+  const start = performance.now();
+  (function frame(now) {
+    const k = (now - start) / 2600; ctx.clearRect(0, 0, W, H);
+    for (const q of parts) {
+      q.vy += 0.32; q.vx *= 0.99; q.vy *= 0.99; q.x += q.vx; q.y += q.vy; q.r += q.vr;
+      ctx.save(); ctx.globalAlpha = Math.max(0, 1 - Math.max(0, k - .6) / .4); ctx.translate(q.x, q.y); ctx.rotate(q.r);
+      ctx.fillStyle = q.c; ctx.fillRect(-q.w / 2, -q.h / 2, q.w, q.h); ctx.restore();
+    }
+    if (k < 1) requestAnimationFrame(frame); else cv.remove();
+  })(start);
+}
+
+function apply(next, pos) {
   if (next === S.game) return;
+  if (pos != null) celebrate(S.game, next, pos);
   S.undo.push(S.game); if (S.undo.length > 200) S.undo.shift();
   S.game = next;
   if (isSolved(next)) {
@@ -421,9 +488,9 @@ app.addEventListener('click', (ev) => {
     case 'cell': if (!S.paused) { const p = +b.dataset.p; S.selected = S.selected === p ? null : p; render(); } break;
     case 'notes': S.notesMode = !S.notesMode; render(); break;
     case 'digit': if (playable() && S.selected != null) { const d = +b.dataset.d, p = S.selected;
-      apply(S.notesMode && !g.val[p] ? toggleNote(g, p, d) : place(g, p, d)); } break;
+      apply(S.notesMode && !g.val[p] ? toggleNote(g, p, d) : place(g, p, d), p); } break;
     case 'erase': if (playable() && S.selected != null) apply(erase(g, S.selected)); break;
-    case 'hint': if (playable()) { const r = hint(g, S.selected); if (r) { S.selected = r[1]; apply(r[0]); } } break;
+    case 'hint': if (playable()) { const r = hint(g, S.selected); if (r) { S.selected = r[1]; apply(r[0], r[1]); } } break;
     case 'undo': if (playable() && S.undo.length) { const prev = S.undo.pop();
       S.game = { ...prev, mistakes: g.mistakes, hints: g.hints, secs: g.secs }; saveGame(); render(); } break;
     case 'second': S.game = { ...g, mistakes: MAX_MISTAKES - 1 }; saveGame(); render(); break;
@@ -445,7 +512,7 @@ document.addEventListener('keydown', (ev) => {
   if (S.screen !== 'game' || !S.game || ev.target.tagName === 'INPUT') return;
   const g = S.game;
   if (/^[1-9]$/.test(ev.key) && playable() && S.selected != null) {
-    const d = +ev.key, p = S.selected; apply(S.notesMode && !g.val[p] ? toggleNote(g, p, d) : place(g, p, d));
+    const d = +ev.key, p = S.selected; apply(S.notesMode && !g.val[p] ? toggleNote(g, p, d) : place(g, p, d), p);
   } else if ((ev.key === 'Backspace' || ev.key === 'Delete') && playable() && S.selected != null) apply(erase(g, S.selected));
   else if (ev.key.startsWith('Arrow') && !S.paused) {
     const p = S.selected ?? 40, r = Math.floor(p / 9), c = p % 9;

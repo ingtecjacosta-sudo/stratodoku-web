@@ -17,7 +17,7 @@ después de abrirlo una vez. En Android con Chrome: menú ⋮ → **Instalar app
 
 Lo mismo que la app de Android: 4 dificultades con tableros de solución única, notas, 3 pistas,
 deshacer, límite de 3 errores, cronómetro con pausa, guardado automático y récords (10 mejores tiempos
-por dificultad) con nombre y avatar (emoji o foto). En computadora también se juega con el teclado:
+por dificultad) con nombre y avatar (emoji o foto). Efectos al completar un cuadro (verde) y al completar el Sudoku (ola naranja y confeti). En computadora también se juega con el teclado:
 números, flechas y Borrar.
 
 La partida y los récords se guardan en el navegador de cada teléfono.
