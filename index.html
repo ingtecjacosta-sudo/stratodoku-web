@@ -113,7 +113,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--primary); o
 .notes span { font-size: clamp(8px, 2.4vw, 11px); color: var(--muted); display: flex; align-items: center; justify-content: center; }
 .paused { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: var(--surface); border-radius: 6px; border: 2.5px solid var(--line-strong); }
 .paused .btn-primary { width: 64px; height: 64px; border-radius: 50%; padding: 0; display: flex; align-items: center; justify-content: center; }
-.spacer { flex: 1; min-height: 8px; }
+.spacer { flex: 0 0 4px; }  /* números justo debajo del tablero; el espacio libre queda al final */
 .actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
 .action { border: 0; background: none; border-radius: 12px; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 12px; color: var(--muted); cursor: pointer; }
 .action.on { background: var(--primary-soft); color: var(--primary); }
@@ -179,7 +179,7 @@ const DIFFICULTIES = [
   { id: 'DIFICIL', label: 'Difícil', givens: 28 },
   { id: 'EXPERTO', label: 'Experto', givens: 24 },
 ];
-const APP_VERSION = '1.5';
+const APP_VERSION = '1.6';
 const MAX_MISTAKES = 3, MAX_HINTS = 3, BOARD_SIZE = 10, MAX_NAME = 20;
 const EMOJIS = ['🦊','🐱','🐶','🐼','🦁','🐸','🐵','🐧','🦉','🐢','🦄','🐙','🚀','⭐','🌙','🧠'];
 const diffById = (id) => DIFFICULTIES.find((d) => d.id === id) || DIFFICULTIES[0];
@@ -361,14 +361,14 @@ function renderGame() {
       ${S.paused ? `<div class="paused"><button class="btn-primary" data-act="pause" aria-label="Continuar">${icon('play')}</button><span>En pausa</span></div>` : ''}
     </div>
     <div class="spacer"></div>
+    <div class="pad">${[1,2,3,4,5,6,7,8,9].map((d) => { const left = 9 - placed[d];
+      return `<button class="key ${S.notesMode ? 'notes-mode' : ''}" data-act="digit" data-d="${d}" ${left > 0 ? '' : 'disabled'} aria-label="Número ${d}"><b>${d}</b><small>${left}</small></button>`; }).join('')}</div>
     <div class="actions">
       <button class="action" data-act="undo" ${S.undo.length ? '' : 'disabled'}>${icon('undo')}Deshacer</button>
       <button class="action" data-act="erase">${icon('erase')}Borrar</button>
       <button class="action ${S.notesMode ? 'on' : ''}" data-act="notes" aria-pressed="${S.notesMode}">${icon('pencil')}${S.notesMode ? 'Notas: sí' : 'Notas: no'}</button>
       <button class="action" data-act="hint" ${hintsLeft > 0 ? '' : 'disabled'}>${icon('bulb')}Pista (${hintsLeft})</button>
     </div>
-    <div class="pad">${[1,2,3,4,5,6,7,8,9].map((d) => { const left = 9 - placed[d];
-      return `<button class="key ${S.notesMode ? 'notes-mode' : ''}" data-act="digit" data-d="${d}" ${left > 0 ? '' : 'disabled'} aria-label="Número ${d}"><b>${d}</b><small>${left}</small></button>`; }).join('')}</div>
   </div>`;
 }
 

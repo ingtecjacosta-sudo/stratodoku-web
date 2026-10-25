@@ -1,6 +1,6 @@
 // Funciona sin internet: guarda los archivos de la app y, si hay conexión, busca la versión nueva.
 // Al cambiar la app, sube el número de VERSION para que los teléfonos descarguen la actualización.
-const VERSION = 'stratodoku-v4';
+const VERSION = 'stratodoku-v5';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/favicon.png'];
 
 self.addEventListener('install', (e) => {
