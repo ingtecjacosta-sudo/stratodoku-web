@@ -153,11 +153,22 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--primary); o
 .toast.win { background: var(--fx-orange-dark); }
 #confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; }
 @media (prefers-reduced-motion: reduce) { .cell.fx-box, .cell.fx-win, .toast { animation-duration: .01ms; } }
+/* Tamaño grande: tablero casi de borde a borde y números más grandes */
+.app.size-c { padding-left: max(4px, env(safe-area-inset-left, 0px)); padding-right: max(4px, env(safe-area-inset-right, 0px)); }
+.app.size-c .home { padding: 0 12px; }
+.app.size-c .grid-wrap { width: min(100%, calc(100dvh - 280px)); }
+.app.size-c .cell { font-size: clamp(22px, 8.4vw, 38px); }
+.app.size-c .cell.mine, .app.size-c .cell.wrong { font-weight: 500; }
+.app.size-c .notes span { font-size: clamp(9px, 3vw, 13px); font-weight: 600; }
+.app.size-c .key { min-height: 72px; }
+.app.size-c .key b { font-size: 38px; font-weight: 500; }
+.app.size-c .key.notes-mode b { font-size: 28px; }
+.notes span { line-height: 1; }
 .sr { position: fixed; top: 0; left: 0; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
 <body>
-<div class="app" id="app"></div>
+<div class="app size-c" id="app"></div>
 <input type="file" id="photo-input" accept="image/*" class="sr" aria-label="Elegir foto de avatar">
 
 <script>
@@ -168,7 +179,7 @@ const DIFFICULTIES = [
   { id: 'DIFICIL', label: 'Difícil', givens: 28 },
   { id: 'EXPERTO', label: 'Experto', givens: 24 },
 ];
-const APP_VERSION = '1.3';
+const APP_VERSION = '1.5';
 const MAX_MISTAKES = 3, MAX_HINTS = 3, BOARD_SIZE = 10, MAX_NAME = 20;
 const EMOJIS = ['🦊','🐱','🐶','🐼','🦁','🐸','🐵','🐧','🦉','🐢','🦄','🐙','🚀','⭐','🌙','🧠'];
 const diffById = (id) => DIFFICULTIES.find((d) => d.id === id) || DIFFICULTIES[0];
@@ -420,7 +431,7 @@ function celebrate(prev, next, pos) {
   // Onda que sale desde la casilla recién llenada
   const pr = Math.floor(pos / 9), pc = pos % 9, d = {};
   for (const b of done) for (const p of boxCells(b)) d[p] = Math.max(Math.abs(Math.floor(p / 9) - pr), Math.abs(p % 9 - pc)) * 90;
-  S.fx = { kind: 'box', t, d, label: done.length > 1 ? '¡Dos cuadros!' : '¡Cuadro completo!' };
+  S.fx = { kind: 'box', t, d, label: null };  // sin cartel: solo el salto verde, para no interrumpir
   vibrate(40);
 }
 
