@@ -84,6 +84,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--primary); o
 .avatar { flex: none; border-radius: 50%; background: var(--primary-soft); display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .version { text-align: center; font-size: 12px; color: var(--muted); padding: 16px 0 4px; }
+.scope { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; background: var(--peer); border-radius: 22px; padding: 4px; }
+.scope button { border: 0; border-radius: 18px; min-height: 40px; background: transparent; color: var(--on-primary-soft); font-weight: 600; font-size: 14px; cursor: pointer; }
+.scope button[aria-pressed="true"] { background: var(--primary); color: var(--on-primary); }
+.rec.mine { background: color-mix(in srgb, var(--primary-soft) 45%, transparent); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+.you { font-size: 11px; font-weight: 700; color: var(--primary); margin-left: 6px; }
 .loading { text-align: center; color: var(--muted); padding: 24px 0; }
 
 /* ---------- Juego ---------- */
@@ -179,7 +184,7 @@ const DIFFICULTIES = [
   { id: 'DIFICIL', label: 'Difícil', givens: 28 },
   { id: 'EXPERTO', label: 'Experto', givens: 24 },
 ];
-const APP_VERSION = '1.6';
+const APP_VERSION = '1.7';
 const MAX_MISTAKES = 3, MAX_HINTS = 3, BOARD_SIZE = 10, MAX_NAME = 20;
 const EMOJIS = ['🦊','🐱','🐶','🐼','🦁','🐸','🐵','🐧','🦉','🐢','🦄','🐙','🚀','⭐','🌙','🧠'];
 const diffById = (id) => DIFFICULTIES.find((d) => d.id === id) || DIFFICULTIES[0];
@@ -269,10 +274,52 @@ function addRecord(diffId, entry) {
 }
 const rankFor = (diffId, secs) => { const r = store.get('records.' + diffId, []).filter((e) => e.secs <= secs).length; return r < BOARD_SIZE ? r : null; };
 
+// ================= Tabla mundial (Firebase, compartida con Android) =================
+const FIRESTORE = 'https://firestore.googleapis.com/v1/projects/stratodoku/databases/(default)/documents';
+const FIREBASE_KEY = 'AIzaSyDnM4A_Rbg8pF6ZA8T20n4I-79VFQZ8jic';  // clave pública; la seguridad está en las reglas del servidor
+const DEVICE = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iPhone' : 'Web';
+const playerId = (() => { let id = store.get('playerId', null); if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()); store.set('playerId', id); } return id; })();
+const worldEmoji = (a) => (a && a.emoji) || '🙂';  // en la tabla mundial no hay fotos
+const validOnline = (r) => r.name.length > 0 && r.name.length <= MAX_NAME && r.secs >= 30 && r.secs < 86400 && r.mistakes >= 0 && r.mistakes <= 2;
+const worldTop = (diffId) => (S.world || []).filter((r) => r.difficulty === diffId && !String(r.player).startsWith('test-'))
+  .sort((a, b) => a.secs - b.secs || a.date - b.date).slice(0, BOARD_SIZE);
+
+async function uploadRecord(r) {
+  const str = (v) => ({ stringValue: String(v) }), int = (v) => ({ integerValue: String(Math.round(v)) });
+  const res = await fetch(`${FIRESTORE}/records?key=${FIREBASE_KEY}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: { name: str(r.name), avatar: str(r.emoji), secs: int(r.secs), mistakes: int(r.mistakes),
+      difficulty: str(r.difficulty), device: str(r.device), player: str(r.player), date: int(r.date) } }) });
+  if (res.status >= 400 && res.status < 500 && res.status !== 429) return 'rejected';
+  if (!res.ok) throw new Error('Error del servidor ' + res.status);
+  return 'ok';
+}
+async function fetchWorld() {
+  const res = await fetch(`${FIRESTORE}:runQuery?key=${FIREBASE_KEY}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: 'records' }], orderBy: [{ field: { fieldPath: 'secs' }, direction: 'ASCENDING' }], limit: 500 } }) });
+  if (!res.ok) throw new Error('Error del servidor ' + res.status);
+  return (await res.json()).filter((x) => x.document).map((x) => {
+    const f = x.document.fields, sv = (k) => f[k] && f[k].stringValue, iv = (k) => Number(f[k] && f[k].integerValue);
+    return { name: sv('name'), emoji: sv('avatar'), secs: iv('secs'), mistakes: iv('mistakes'), difficulty: sv('difficulty'), device: sv('device'), player: sv('player'), date: iv('date') };
+  }).filter((r) => r.name && r.difficulty && Number.isFinite(r.secs));
+}
+let worldBusy = false;
+async function refreshWorld() {
+  if (worldBusy) return; worldBusy = true; S.worldState = 'loading'; if (S.screen === 'home') render();
+  // Subir lo pendiente; lo que el servidor rechaza se descarta, lo demás se reintenta después
+  const still = [];
+  for (const r of store.get('worldPending', [])) { try { await uploadRecord(r); } catch { still.push(r); } }
+  store.set('worldPending', still);
+  try {
+    S.world = await fetchWorld(); store.set('world', S.world); store.set('worldTime', Date.now()); S.worldState = 'ok';
+  } catch { S.worldState = 'offline'; }
+  worldBusy = false; if (S.screen === 'home') render();
+}
+
 // ================= Estado de la pantalla =================
 const S = {
   screen: 'home', game: null, undo: [], selected: null, notesMode: false, paused: false, generating: false,
   tab: store.get('tab', 'FACIL'), dialog: null, pending: null, savedRank: null,
+  scope: store.get('scope', 'world'), world: store.get('world', []), worldState: 'loading',
   fx: null, celebrating: false, name: store.get('lastName', ''), avatar: store.get('lastAvatar', { emoji: EMOJIS[0] }), confirmClear: false,
 };
 { const saved = store.get('game', null); if (saved && saved.sol && !isOver(saved)) S.game = saved; }
@@ -300,7 +347,7 @@ function renderHome() {
   const recs = store.get('records.' + S.tab, []);
   const wins = store.get('wins.' + S.tab, 0);
   const anyRecords = DIFFICULTIES.some((d) => store.get('records.' + d.id, []).length);
-  const medals = ['🥇', '🥈', '🥉'];
+  const medals = ['🥇', '🥈', '🥉'], isWorld = S.scope === 'world';
   return `<div class="home">
     <div class="brand"><h1>Stratodoku</h1><p>Llena el tablero: cada fila, columna y cuadro debe tener los números del 1 al 9.</p></div>
     ${g ? `<div class="continue"><div><strong>Partida en curso</strong><span>${diffById(g.d).label} · ${fmt(g.secs)} · Errores ${g.mistakes}/${MAX_MISTAKES}</span></div>
@@ -308,19 +355,38 @@ function renderHome() {
     <div class="section-title">Nueva partida</div>
     ${S.generating ? `<div class="loading">Preparando el tablero…</div>` : `<div class="diffs">${DIFFICULTIES.map((d) =>
       `<button class="diff" data-act="new" data-d="${d.id}"><b>${d.label}</b><small>${d.givens} números de inicio</small></button>`).join('')}</div>`}
-    <div class="section-title"><span>Récords</span>${anyRecords ? `<button class="text-btn" data-act="ask-clear">Borrar</button>` : ''}</div>
+    <div class="section-title"><span>Récords</span>${isWorld ? `<button class="text-btn" data-act="refresh-world" ${S.worldState === 'loading' ? 'disabled' : ''}>Actualizar</button>`
+      : anyRecords ? `<button class="text-btn" data-act="ask-clear">Borrar</button>` : ''}</div>
+    <div class="scope" role="group" aria-label="Tabla de récords">
+      <button data-act="scope" data-s="world" aria-pressed="${isWorld}">Mundial</button>
+      <button data-act="scope" data-s="local" aria-pressed="${!isWorld}">En este teléfono</button>
+    </div>
     <div class="chips" role="group" aria-label="Dificultad de los récords">${DIFFICULTIES.map((d) =>
       `<button class="chip" data-act="tab" data-d="${d.id}" aria-pressed="${d.id === S.tab}">${d.label}</button>`).join('')}</div>
-    <div class="board-card">
+    <div class="board-card">${isWorld ? worldCard() : `
       ${recs.length ? recs.map((r, i) => `<div class="rec">
           <span class="pos ${i < 3 ? 'medal' : ''}">${medals[i] || i + 1}</span>${avatarHtml(r.avatar, 40)}
           <div class="who"><b>${esc(r.name)}</b><small>${r.mistakes === 1 ? '1 error' : r.mistakes + ' errores'}</small></div>
           <span class="time">${fmt(r.secs)}</span></div>`).join('')
         : `<div class="empty">Todavía no hay récords en ${diffById(S.tab).label.toLowerCase()}. ¡Gana una partida para aparecer aquí!</div>`}
-      <div class="wins">Partidas ganadas: ${wins}</div>
+      <div class="wins">Partidas ganadas en este teléfono: ${wins}</div>`}
     </div>
     <div class="version">Versión web ${APP_VERSION}</div>
   </div>`;
+}
+
+function worldCard() {
+  const recs = worldTop(S.tab), medals = ['🥇', '🥈', '🥉'], pending = store.get('worldPending', []).length;
+  const hasCache = !!store.get('worldTime', null);
+  const empty = S.worldState === 'loading' && !hasCache ? 'Cargando récords mundiales…'
+    : S.worldState === 'offline' && !hasCache ? 'No se pudo conectar. Revisa tu internet y toca Actualizar.'
+    : `Todavía no hay récords mundiales en ${diffById(S.tab).label.toLowerCase()}. ¡Sé el primero!`;
+  const status = { loading: 'Actualizando…', ok: 'Top 10 de todos los jugadores (Android, iPhone y web)', offline: 'Sin conexión: se muestra lo último descargado' }[S.worldState];
+  return `${recs.length ? recs.map((r, i) => { const mine = r.player === playerId; return `<div class="rec ${mine ? 'mine' : ''}">
+      <span class="pos ${i < 3 ? 'medal' : ''}">${medals[i] || i + 1}</span>${avatarHtml({ emoji: r.emoji }, 40)}
+      <div class="who"><b>${esc(r.name)}${mine ? '<span class="you">TÚ</span>' : ''}</b><small>${r.mistakes === 1 ? '1 error' : r.mistakes + ' errores'} · ${esc(r.device)}</small></div>
+      <span class="time">${fmt(r.secs)}</span></div>`; }).join('') : `<div class="empty">${empty}</div>`}
+    <div class="wins">${status}${pending ? `<br>${pending} récord(s) tuyo(s) se subirán cuando haya internet` : ''}</div>`;
 }
 
 function renderGame() {
@@ -375,7 +441,7 @@ function renderGame() {
 function renderDialog() {
   const g = S.game;
   if (S.confirmClear) return `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dt">
-    <h3 id="dt">¿Borrar todos los récords?</h3><p>Se borrarán los récords y las partidas ganadas de todas las dificultades.</p>
+    <h3 id="dt">¿Borrar los récords de este teléfono?</h3><p>Se borrarán los récords y las partidas ganadas guardados en este teléfono. La tabla mundial no cambia.</p>
     <div class="buttons"><button class="text-btn" data-act="cancel-clear">Cancelar</button><button class="text-btn" data-act="clear">Borrar</button></div></div></div>`;
   if (S.screen !== 'game' || !g || S.celebrating) return '';
   const summary = `Resolviste un Sudoku ${diffById(g.d).label.toLowerCase()} en ${fmt(g.secs)} con ${g.mistakes} ${g.mistakes === 1 ? 'error' : 'errores'}.`;
@@ -482,7 +548,7 @@ function startGame(diffId) {
 }
 function goHome() {
   if (S.game && isOver(S.game)) S.game = null;
-  S.pending = null; S.savedRank = null; S.screen = 'home'; saveGame(); render();
+  S.pending = null; S.savedRank = null; S.screen = 'home'; saveGame(); render(); refreshWorld();
 }
 const playable = () => S.game && !isOver(S.game) && !S.paused;
 
@@ -495,6 +561,8 @@ app.addEventListener('click', (ev) => {
     case 'continue': S.undo = []; S.selected = null; S.paused = false; S.screen = 'game'; render(); break;
     case 'home': goHome(); break;
     case 'tab': S.tab = b.dataset.d; store.set('tab', S.tab); render(); break;
+    case 'scope': S.scope = b.dataset.s; store.set('scope', S.scope); render(); break;
+    case 'refresh-world': refreshWorld(); break;
     case 'ask-clear': S.confirmClear = true; render(); break;
     case 'cancel-clear': S.confirmClear = false; render(); break;
     case 'clear': DIFFICULTIES.forEach((d) => { store.set('records.' + d.id, null); store.set('wins.' + d.id, null); }); S.confirmClear = false; render(); break;
@@ -514,7 +582,11 @@ app.addEventListener('click', (ev) => {
     case 'save': {
       const name = S.name.trim().replace(/\s+/g, ' ').slice(0, MAX_NAME) || 'Jugador';
       S.name = name; store.set('lastName', name); store.set('lastAvatar', S.avatar);
-      S.savedRank = addRecord(g.d, { name, avatar: S.avatar, secs: g.secs, mistakes: g.mistakes, date: Date.now() });
+      const date = Date.now();
+      S.savedRank = addRecord(g.d, { name, avatar: S.avatar, secs: g.secs, mistakes: g.mistakes, date });
+      // También a la tabla mundial (si no hay internet, queda pendiente y se sube después)
+      const online = { name, emoji: worldEmoji(S.avatar), secs: g.secs, mistakes: g.mistakes, difficulty: g.d, device: DEVICE, player: playerId, date };
+      if (validOnline(online)) { store.set('worldPending', store.get('worldPending', []).concat(online)); refreshWorld(); }
       S.pending = null; render(); break;
     }
   }
@@ -560,6 +632,8 @@ document.addEventListener('visibilitychange', () => {
 });
 
 render();
+refreshWorld();
+window.addEventListener('online', refreshWorld);
 </script>
 
 <script>
