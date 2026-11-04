@@ -89,6 +89,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--primary); o
 .scope button[aria-pressed="true"] { background: var(--primary); color: var(--on-primary); }
 .rec.mine { background: color-mix(in srgb, var(--primary-soft) 45%, transparent); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
 .you { font-size: 11px; font-weight: 700; color: var(--primary); margin-left: 6px; }
+.rec .who small { display: block; }
+.code-card { background: var(--card); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.code-card p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
+.code-row { display: flex; gap: 10px; align-items: center; }
+.code { flex: 1; text-align: center; font-size: 22px; font-weight: 700; letter-spacing: 3px; color: var(--primary); background: var(--surface); border: 1.5px dashed var(--line); border-radius: 10px; padding: 8px; font-variant-numeric: tabular-nums; }
+.notice { display: flex; gap: 12px; align-items: center; background: var(--card); border-radius: 14px; padding: 10px 12px; font-size: 14px; line-height: 1.4; }
+.msg-ok { color: var(--primary); font-weight: 600; } .msg-bad { color: var(--error); font-weight: 600; }
 .loading { text-align: center; color: var(--muted); padding: 24px 0; }
 
 /* ---------- Juego ---------- */
@@ -184,7 +191,7 @@ const DIFFICULTIES = [
   { id: 'DIFICIL', label: 'Difícil', givens: 28 },
   { id: 'EXPERTO', label: 'Experto', givens: 24 },
 ];
-const APP_VERSION = '1.7';
+const APP_VERSION = '1.8';
 const MAX_MISTAKES = 3, MAX_HINTS = 3, BOARD_SIZE = 10, MAX_NAME = 20;
 const EMOJIS = ['🦊','🐱','🐶','🐼','🦁','🐸','🐵','🐧','🦉','🐢','🦄','🐙','🚀','⭐','🌙','🧠'];
 const diffById = (id) => DIFFICULTIES.find((d) => d.id === id) || DIFFICULTIES[0];
@@ -268,21 +275,28 @@ const store = {
   set(k, v) { try { if (v == null) localStorage.removeItem('stratodoku.' + k); else localStorage.setItem('stratodoku.' + k, JSON.stringify(v)); } catch {} },
 };
 function addRecord(diffId, entry) {
-  const list = store.get('records.' + diffId, []).concat(entry).sort((a, b) => a.secs - b.secs || a.date - b.date).slice(0, BOARD_SIZE);
+  const list = store.get('records.' + diffId, []).concat(entry).sort(recOrder).slice(0, BOARD_SIZE);
   store.set('records.' + diffId, list);
   return list.indexOf(list.find((e) => e.date === entry.date && e.secs === entry.secs));
 }
-const rankFor = (diffId, secs) => { const r = store.get('records.' + diffId, []).filter((e) => e.secs <= secs).length; return r < BOARD_SIZE ? r : null; };
+// Orden de los récords: menor tiempo; si empatan, menos errores; si también, el que se logró primero
+const recOrder = (a, b) => a.secs - b.secs || a.mistakes - b.mistakes || a.date - b.date;
+const rankFor = (diffId, secs, mistakes) => { const r = store.get('records.' + diffId, []).filter((e) => e.secs < secs || (e.secs === secs && e.mistakes <= mistakes)).length; return r < BOARD_SIZE ? r : null; };
+const fmtDate = (ms) => { if (!ms) return ''; const d = new Date(ms), p = (n) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 
 // ================= Tabla mundial (Firebase, compartida con Android) =================
 const FIRESTORE = 'https://firestore.googleapis.com/v1/projects/stratodoku/databases/(default)/documents';
 const FIREBASE_KEY = 'AIzaSyDnM4A_Rbg8pF6ZA8T20n4I-79VFQZ8jic';  // clave pública; la seguridad está en las reglas del servidor
 const DEVICE = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iPhone' : 'Web';
-const playerId = (() => { let id = store.get('playerId', null); if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()); store.set('playerId', id); } return id; })();
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';  // sin 0/O ni 1/I, que se confunden
+let playerId = (() => { let id = store.get('playerId', null); if (!id) { id = Array.from({ length: 8 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join(''); store.set('playerId', id); } return id; })();
+const normCode = (t) => String(t).toUpperCase().replace(/[^A-Z0-9]/g, '');
+const codeFor = (player) => { const r = normCode(player).slice(0, 8).padEnd(8, '?'); return r.slice(0, 4) + '-' + r.slice(4); };
+const matchesCode = (player, code) => { const c = normCode(code); return c.length === 8 && !String(player).startsWith('test-') && normCode(player).startsWith(c); };
 const worldEmoji = (a) => (a && a.emoji) || '🙂';  // en la tabla mundial no hay fotos
 const validOnline = (r) => r.name.length > 0 && r.name.length <= MAX_NAME && r.secs >= 30 && r.secs < 86400 && r.mistakes >= 0 && r.mistakes <= 2;
 const worldTop = (diffId) => (S.world || []).filter((r) => r.difficulty === diffId && !String(r.player).startsWith('test-'))
-  .sort((a, b) => a.secs - b.secs || a.date - b.date).slice(0, BOARD_SIZE);
+  .sort(recOrder).slice(0, BOARD_SIZE);
 
 async function uploadRecord(r) {
   const str = (v) => ({ stringValue: String(v) }), int = (v) => ({ integerValue: String(Math.round(v)) });
@@ -302,6 +316,42 @@ async function fetchWorld() {
     return { name: sv('name'), emoji: sv('avatar'), secs: iv('secs'), mistakes: iv('mistakes'), difficulty: sv('difficulty'), device: sv('device'), player: sv('player'), date: iv('date') };
   }).filter((r) => r.name && r.difficulty && Number.isFinite(r.secs));
 }
+const topOf = (list, d) => list.filter((r) => r.difficulty === d && !String(r.player).startsWith('test-')).sort(recOrder).slice(0, BOARD_SIZE);
+const allTops = (list) => DIFFICULTIES.flatMap((d) => topOf(list, d.id));
+const sameRec = (a, b) => a.player === b.player && a.secs === b.secs && a.date === b.date && a.difficulty === b.difficulty;
+// Por dificultad: si otro jugador nuevo en la tabla quedó por encima de un récord mío y bajé de puesto o salí del top 10
+function beatenNotices(prev, now) {
+  const out = [];
+  for (const d of DIFFICULTIES) {
+    const before = topOf(prev, d.id), after = topOf(now, d.id);
+    for (const [oldRank, mine] of before.entries()) {
+      if (mine.player !== playerId) continue;
+      const idx = after.findIndex((r) => sameRec(r, mine)), newRank = idx >= 0 ? idx : null;
+      if (newRank !== null && newRank <= oldRank) continue;
+      const passer = after.find((r) => r.player !== playerId && !before.some((b) => sameRec(b, r)) && recOrder(r, mine) < 0);
+      if (passer) { out.push({ d: d.id, passer, oldRank, newRank }); break; }  // un aviso por dificultad: el de mi mejor puesto
+    }
+  }
+  return out;
+}
+async function recoverWithCode(code) {
+  if (normCode(code).length !== 8) { S.recoverMsg = { ok: false, text: 'El código tiene 8 letras o números, por ejemplo K7M4-Q9TX.' }; render(); return; }
+  S.recovering = true; S.recoverMsg = null; render();
+  let all = null; try { all = await fetchWorld(); } catch {}
+  S.recovering = false;
+  if (!all) { S.recoverMsg = { ok: false, text: 'No se pudo conectar. Revisa tu internet e inténtalo de nuevo.' }; render(); return; }
+  const mine = all.filter((r) => matchesCode(r.player, code));
+  if (!mine.length) { S.recoverMsg = { ok: false, text: 'No encontramos récords con ese código. Revisa que esté bien escrito.' }; render(); return; }
+  playerId = mine[0].player; store.set('playerId', playerId);
+  for (const d of DIFFICULTIES) {
+    const list = store.get('records.' + d.id, []);
+    const fresh = mine.filter((r) => r.difficulty === d.id && !list.some((e) => e.secs === r.secs && e.date === r.date))
+      .map((r) => ({ name: r.name, avatar: { emoji: r.emoji }, secs: r.secs, mistakes: r.mistakes, date: r.date }));
+    store.set('records.' + d.id, list.concat(fresh).sort(recOrder).slice(0, BOARD_SIZE));
+  }
+  S.world = all; store.set('worldSeen', allTops(all)); S.scope = 'local';
+  S.recoverMsg = { ok: true, text: `¡Listo! Se recuperaron ${mine.length} récord(s).` }; render();
+}
 let worldBusy = false;
 async function refreshWorld() {
   if (worldBusy) return; worldBusy = true; S.worldState = 'loading'; if (S.screen === 'home') render();
@@ -311,6 +361,9 @@ async function refreshWorld() {
   store.set('worldPending', still);
   try {
     S.world = await fetchWorld(); store.set('world', S.world); store.set('worldTime', Date.now()); S.worldState = 'ok';
+    const seen = store.get('worldSeen', null);
+    if (seen) { const found = beatenNotices(seen, S.world); if (found.length) S.beaten = S.beaten.concat(found).filter((n, i, a) => a.findIndex((m) => m.d === n.d) === i); }
+    store.set('worldSeen', allTops(S.world));
   } catch { S.worldState = 'offline'; }
   worldBusy = false; if (S.screen === 'home') render();
 }
@@ -320,6 +373,7 @@ const S = {
   screen: 'home', game: null, undo: [], selected: null, notesMode: false, paused: false, generating: false,
   tab: store.get('tab', 'FACIL'), dialog: null, pending: null, savedRank: null,
   scope: store.get('scope', 'world'), world: store.get('world', []), worldState: 'loading',
+  beaten: [], askCode: false, codeInput: '', recovering: false, recoverMsg: null,
   fx: null, celebrating: false, name: store.get('lastName', ''), avatar: store.get('lastAvatar', { emoji: EMOJIS[0] }), confirmClear: false,
 };
 { const saved = store.get('game', null); if (saved && saved.sol && !isOver(saved)) S.game = saved; }
@@ -366,10 +420,16 @@ function renderHome() {
     <div class="board-card">${isWorld ? worldCard() : `
       ${recs.length ? recs.map((r, i) => `<div class="rec">
           <span class="pos ${i < 3 ? 'medal' : ''}">${medals[i] || i + 1}</span>${avatarHtml(r.avatar, 40)}
-          <div class="who"><b>${esc(r.name)}</b><small>${r.mistakes === 1 ? '1 error' : r.mistakes + ' errores'}</small></div>
+          <div class="who"><b>${esc(r.name)}</b><small>${r.mistakes === 1 ? '1 error' : r.mistakes + ' errores'}</small>${r.date ? `<small>${fmtDate(r.date)}</small>` : ''}</div>
           <span class="time">${fmt(r.secs)}</span></div>`).join('')
         : `<div class="empty">Todavía no hay récords en ${diffById(S.tab).label.toLowerCase()}. ¡Gana una partida para aparecer aquí!</div>`}
       <div class="wins">Partidas ganadas en este teléfono: ${wins}</div>`}
+    </div>
+    <div class="code-card">
+      <strong>Tus récords en otro teléfono</strong>
+      <p>Si cambias de teléfono, reinstalas o juegas en la app de Android, usa este código para recuperar tus récords de la tabla mundial.</p>
+      <div class="code-row"><span class="code">${codeFor(playerId)}</span><button class="btn-primary" data-act="copy-code">Copiar</button></div>
+      <button class="text-btn" data-act="ask-code" style="padding:0">Tengo un código: recuperar mis récords</button>
     </div>
     <div class="version">Versión web ${APP_VERSION}</div>
   </div>`;
@@ -384,9 +444,9 @@ function worldCard() {
   const status = { loading: 'Actualizando…', ok: 'Top 10 de todos los jugadores (Android, iPhone y web)', offline: 'Sin conexión: se muestra lo último descargado' }[S.worldState];
   return `${recs.length ? recs.map((r, i) => { const mine = r.player === playerId; return `<div class="rec ${mine ? 'mine' : ''}">
       <span class="pos ${i < 3 ? 'medal' : ''}">${medals[i] || i + 1}</span>${avatarHtml({ emoji: r.emoji }, 40)}
-      <div class="who"><b>${esc(r.name)}${mine ? '<span class="you">TÚ</span>' : ''}</b><small>${r.mistakes === 1 ? '1 error' : r.mistakes + ' errores'} · ${esc(r.device)}</small></div>
+      <div class="who"><b>${esc(r.name)}${mine ? '<span class="you">TÚ</span>' : ''}</b><small>${r.mistakes === 1 ? '1 error' : r.mistakes + ' errores'} · ${esc(r.device)}</small>${r.date ? `<small>${fmtDate(r.date)}</small>` : ''}</div>
       <span class="time">${fmt(r.secs)}</span></div>`; }).join('') : `<div class="empty">${empty}</div>`}
-    <div class="wins">${status}${pending ? `<br>${pending} récord(s) tuyo(s) se subirán cuando haya internet` : ''}</div>`;
+    <div class="wins">Con el mismo tiempo, gana quien tuvo menos errores.<br>${status}${pending ? `<br>${pending} récord(s) tuyo(s) se subirán cuando haya internet` : ''}</div>`;
 }
 
 function renderGame() {
@@ -443,6 +503,23 @@ function renderDialog() {
   if (S.confirmClear) return `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dt">
     <h3 id="dt">¿Borrar los récords de este teléfono?</h3><p>Se borrarán los récords y las partidas ganadas guardados en este teléfono. La tabla mundial no cambia.</p>
     <div class="buttons"><button class="text-btn" data-act="cancel-clear">Cancelar</button><button class="text-btn" data-act="clear">Borrar</button></div></div></div>`;
+  if (S.screen === 'home' && S.askCode) {
+    const done = S.recoverMsg && S.recoverMsg.ok;
+    return `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dt">
+      <h3 id="dt">Recuperar mis récords</h3>
+      <p>Escribe el código que aparecía en tu otro teléfono o en la app. Tus récords de la tabla mundial se copiarán aquí.</p>
+      ${done ? '' : `<div class="field"><label for="code-input">Código</label><input id="code-input" maxlength="12" autocapitalize="characters" autocomplete="off" value="${esc(S.codeInput)}"></div>`}
+      ${S.recovering ? '<p>Buscando tus récords…</p>' : ''}
+      ${S.recoverMsg ? `<p class="${S.recoverMsg.ok ? 'msg-ok' : 'msg-bad'}">${esc(S.recoverMsg.text)}</p>` : ''}
+      <div class="buttons">${done ? '<button class="text-btn" data-act="close-code">Listo</button>'
+        : `<button class="text-btn" data-act="close-code" ${S.recovering ? 'disabled' : ''}>Cancelar</button><button class="text-btn" data-act="recover" ${S.recovering ? 'disabled' : ''}>Recuperar</button>`}</div>
+    </div></div>`;
+  }
+  if (S.screen === 'home' && S.beaten.length) return `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dt">
+    <h3 id="dt">¡Te superaron!</h3><p>Desde la última vez, alguien mejoró tus récords en la tabla mundial:</p>
+    ${S.beaten.map((n) => `<div class="notice">${avatarHtml({ emoji: n.passer.emoji }, 40)}<div><b>${esc(n.passer.name)}</b> hizo ${fmt(n.passer.secs)} en <b>${diffById(n.d).label}</b><br>
+      <span style="color:var(--muted)">${n.newRank === null ? 'Saliste del top 10' : `Bajaste del puesto ${n.oldRank + 1} al ${n.newRank + 1}`}</span></div></div>`).join('')}
+    <div class="buttons"><button class="text-btn" data-act="beaten-see">Ver récords</button><button class="text-btn" data-act="beaten-ok">Entendido</button></div></div></div>`;
   if (S.screen !== 'game' || !g || S.celebrating) return '';
   const summary = `Resolviste un Sudoku ${diffById(g.d).label.toLowerCase()} en ${fmt(g.secs)} con ${g.mistakes} ${g.mistakes === 1 ? 'error' : 'errores'}.`;
   if (isSolved(g) && S.pending) {
@@ -461,7 +538,7 @@ function renderDialog() {
   }
   if (isSolved(g)) return `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dt">
     <h3 id="dt">¡Felicidades!</h3>
-    <div class="center">${S.savedRank != null ? `${avatarHtml(S.avatar, 64)}<strong>${esc(S.name)}, quedaste en el puesto ${S.savedRank + 1} de los récords.</strong>` : ''}<p>${summary}</p></div>
+    <div class="center">${S.savedRank != null ? `${avatarHtml(S.avatar, 64)}<strong>${esc(S.name)}, quedaste en el puesto ${S.savedRank + 1} de los récords.</strong>` : ''}<p>${summary}</p>${g.usedSecond ? `<p>Como llegaste a ${MAX_MISTAKES} errores, esta partida no cuenta para los récords.</p>` : ''}</div>
     <div class="buttons"><button class="text-btn" data-act="home">Inicio</button><button class="text-btn" data-act="again">Otra partida</button></div></div></div>`;
   if (isLost(g)) return `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dt">
     <h3 id="dt">Fin de la partida</h3><p>Cometiste ${MAX_MISTAKES} errores. ¿Quieres una segunda oportunidad?</p>
@@ -534,7 +611,7 @@ function apply(next, pos) {
   S.game = next;
   if (isSolved(next)) {
     store.set('wins.' + next.d, store.get('wins.' + next.d, 0) + 1);
-    const rank = rankFor(next.d, next.secs);
+    const rank = next.usedSecond ? null : rankFor(next.d, next.secs, next.mistakes);  // tras 3 errores no hay récord
     S.pending = rank != null ? { rank } : null; S.savedRank = null; S.selected = null;
   }
   saveGame(); render();
@@ -574,8 +651,14 @@ app.addEventListener('click', (ev) => {
     case 'erase': if (playable() && S.selected != null) apply(erase(g, S.selected)); break;
     case 'hint': if (playable()) { const r = hint(g, S.selected); if (r) { S.selected = r[1]; apply(r[0], r[1]); } } break;
     case 'undo': if (playable() && S.undo.length) { const prev = S.undo.pop();
-      S.game = { ...prev, mistakes: g.mistakes, hints: g.hints, secs: g.secs }; saveGame(); render(); } break;
-    case 'second': S.game = { ...g, mistakes: MAX_MISTAKES - 1 }; saveGame(); render(); break;
+      S.game = { ...prev, mistakes: g.mistakes, hints: g.hints, secs: g.secs, usedSecond: g.usedSecond }; saveGame(); render(); } break;
+    case 'second': S.game = { ...g, mistakes: MAX_MISTAKES - 1, usedSecond: true }; saveGame(); render(); break;
+    case 'beaten-ok': S.beaten = []; render(); break;
+    case 'beaten-see': S.tab = S.beaten[0].d; S.scope = 'world'; S.beaten = []; render(); break;
+    case 'copy-code': { const c = codeFor(playerId); try { navigator.clipboard.writeText(c).then(() => { b.textContent = 'Copiado'; }, () => {}); } catch {} break; }
+    case 'ask-code': S.askCode = true; S.recoverMsg = null; S.codeInput = ''; render(); break;
+    case 'close-code': S.askCode = false; S.recoverMsg = null; render(); break;
+    case 'recover': recoverWithCode(S.codeInput); break;
     case 'emoji': S.avatar = { emoji: b.dataset.e }; render(); break;
     case 'photo': document.getElementById('photo-input').click(); break;
     case 'skip': S.pending = null; render(); break;
@@ -591,7 +674,7 @@ app.addEventListener('click', (ev) => {
     }
   }
 });
-app.addEventListener('input', (ev) => { if (ev.target.id === 'name-input') S.name = ev.target.value; });
+app.addEventListener('input', (ev) => { if (ev.target.id === 'name-input') S.name = ev.target.value; if (ev.target.id === 'code-input') S.codeInput = ev.target.value; });
 
 // Teclado físico (computadora): números, flechas, borrar
 document.addEventListener('keydown', (ev) => {

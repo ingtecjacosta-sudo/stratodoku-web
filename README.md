@@ -20,7 +20,7 @@ deshacer, límite de 3 errores, cronómetro con pausa, guardado automático y r�
 por dificultad) con nombre y avatar (emoji o foto). Efectos al completar un cuadro (salto verde, sin mensaje) y al completar el Sudoku (ola naranja y confeti). En computadora también se juega con el teclado:
 números, flechas y Borrar.
 
-La partida y los récords propios se guardan en el navegador. Además hay una **tabla mundial** (Firebase), compartida con la app de Android: los récords se suben al guardarlos y, sin internet, quedan pendientes hasta que vuelva la conexión. En la tabla mundial los avatares son solo emojis.
+La partida y los récords propios se guardan en el navegador. Además hay una **tabla mundial** (Firebase), compartida con la app de Android: los récords se suben al guardarlos y, sin internet, quedan pendientes hasta que vuelva la conexión. En la tabla mundial los avatares son solo emojis. Con el mismo tiempo gana quien tuvo menos errores; cada récord muestra fecha y hora; tras 3 errores (segunda oportunidad) la partida no da récord. Al abrir avisa si alguien superó tus récords, y el código de jugador permite recuperarlos en otro dispositivo.
 
 ## Archivos
 
